@@ -38,6 +38,22 @@ typedef struct AVLNode {
     int height;             // Altura do nó
 } AVLNode;
 
+typedef struct {
+    float minAirTemp, maxAirTemp;
+    float minProcessTemp, maxProcessTemp;
+    int minRotationalSpeed, maxRotationalSpeed;
+    float minTorque, maxTorque;
+    int minToolWear, maxToolWear;
+    bool hadTWF, hadHDF, hadPWF, hadOSF, hadRNF;
+} FailurePattern;
+
+// NOVA ESTRUTURA: Lista dinâmica para armazenar múltiplos padrões de falha
+typedef struct {
+    FailurePattern* patterns;
+    int count;
+    int capacity;
+} FailurePatternList;
+
 // Estrutura da Árvore AVL
 typedef struct {
     AVLNode* root;
@@ -977,7 +993,9 @@ void displayMenu() {
     printf("9. Filtro Avançado\n");
     printf("10. Executar Benchmarks\n");
     printf("11. Executar Restrições\n");
-    printf("12. Sair\n");
+    printf("12. Aprender Padrões de Falha\n");        // NOVA OPÇÃO
+    printf("13. Simular Fresadora e Detectar Falhas\n"); // NOVA OPÇÃO
+    printf("14. Sair\n");                               // Opção de saída atualizada
     printf("Escolha: ");
 }
 
@@ -989,7 +1007,7 @@ typedef struct {
     LARGE_INTEGER frequency;
 } HighPrecisionTimer;
 
-// Funções para o timer de alta precisão
+// Funções do timer de alta precisão
 void start_timer(HighPrecisionTimer* timer) {
     QueryPerformanceFrequency(&timer->frequency);
     QueryPerformanceCounter(&timer->start);
@@ -997,7 +1015,8 @@ void start_timer(HighPrecisionTimer* timer) {
 
 double stop_timer(HighPrecisionTimer* timer) {
     QueryPerformanceCounter(&timer->end);
-    return (double)(timer->end.QuadPart - timer->start.QuadPart) * 1000.0 / timer->frequency.QuadPart;
+    double elapsed = (double)(timer->end.QuadPart - timer->start.QuadPart) * 1000.0 / timer->frequency.QuadPart;
+    return elapsed;
 }
 
 void generateRandomData(AVLTree* tree, int count) {
@@ -1380,55 +1399,267 @@ void run_restricted_benchmarks() {
     printf("\n=== FIM DOS TESTES COM RESTRIÇÕES ===\n");
 }
 
+// --- FUNÇÕES AUXILIARES PARA A LISTA DE PADRÕES DE FALHA ---
+
+// Inicializa a lista de padrões de falha
+void initFailurePatternList(FailurePatternList* list) {
+    list->patterns = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
+
+// Adiciona um padrão de falha à lista dinâmica
+void addFailurePattern(FailurePatternList* list, FailurePattern pattern) {
+    if (list->count == list->capacity) {
+        list->capacity = (list->capacity == 0) ? 1 : list->capacity * 2;
+        list->patterns = (FailurePattern*)realloc(list->patterns, list->capacity * sizeof(FailurePattern));
+        if (list->patterns == NULL) {
+            perror("Falha ao realocar memória para os padrões de falha");
+            exit(EXIT_FAILURE);
+        }
+    }
+    list->patterns[list->count++] = pattern;
+}
+
+// Libera a memória alocada para a lista de padrões de falha
+void freeFailurePatternList(FailurePatternList* list) {
+    free(list->patterns);
+    list->patterns = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
+
+// --- FUNÇÕES DE APRENDIZAGEM E DETECÇÃO DE PADRÕES DE FALHA ---
+
+// Função auxiliar para percorrer a AVL e aprender padrões
+void learnFailurePatternsRecursive(AVLNode* node, FailurePatternList* patterns) {
+    if (node == NULL) {
+        return;
+    }
+
+    learnFailurePatternsRecursive(node->left, patterns); // Percorre a subárvore esquerda
+
+    if (node->data.MachineFailure) { // Se houver falha na máquina
+        FailurePattern fp;
+        // Para este exemplo, armazena os valores exatos da instância de falha como um padrão.
+        // Um sistema mais robusto poderia calcular faixas, médias, etc.
+        fp.minAirTemp = fp.maxAirTemp = node->data.AirTemp;
+        fp.minProcessTemp = fp.maxProcessTemp = node->data.ProcessTemp;
+        fp.minRotationalSpeed = fp.maxRotationalSpeed = node->data.RotationalSpeed;
+        fp.minTorque = fp.maxTorque = node->data.Torque;
+        fp.minToolWear = fp.maxToolWear = node->data.ToolWear;
+        
+        fp.hadTWF = node->data.TWF;
+        fp.hadHDF = node->data.HDF;
+        fp.hadPWF = node->data.PWF;
+        fp.hadOSF = node->data.OSF;
+        fp.hadRNF = node->data.RNF;
+
+        addFailurePattern(patterns, fp);
+    }
+
+    learnFailurePatternsRecursive(node->right, patterns); // Percorre a subárvore direita
+}
+
+// APRENDE OS PADRÕES DE FALHA A PARTIR DOS DADOS EXISTENTES NA ÁRVORE AVL
+// Opção 12 do menu.
+void learnFailurePatterns(AVLTree* tree, FailurePatternList* patterns) {
+    if (tree->size == 0) {
+        printf("Árvore AVL vazia. Nenhuma falha para aprender.\n");
+        return;
+    }
+
+    printf("\n=== APRENDENDO PADRÕES DE FALHA ===\n");
+    // Reinicia os padrões antes de aprender novos
+    freeFailurePatternList(patterns);
+    initFailurePatternList(patterns);
+
+    learnFailurePatternsRecursive(tree->root, patterns);
+    printf("Aprendidos %d padrões de falha a partir dos dados existentes.\n", patterns->count);
+}
+
+// VERIFICA SE OS DADOS ATUAIS CORRESPONDEM A UM PADRÃO DE FALHA APRENDIDO
+// Compara os dados da máquina com os padrões armazenados.
+// A correspondência atual é exata. Em um cenário real, você pode usar uma tolerância.
+bool checkForFailurePattern(MachineData data, FailurePatternList* patterns) {
+    for (int i = 0; i < patterns->count; i++) {
+        FailurePattern fp = patterns->patterns[i];
+
+        // Esta é uma correspondência exata. Considere adicionar uma tolerância (e.g., fabs(data.AirTemp - fp.minAirTemp) < epsilon)
+        bool match = true;
+        if (data.AirTemp != fp.minAirTemp ||
+            data.ProcessTemp != fp.minProcessTemp ||
+            data.RotationalSpeed != fp.minRotationalSpeed ||
+            data.Torque != fp.minTorque ||
+            data.ToolWear != fp.minToolWear) {
+            match = false;
+        }
+
+        // Também verifica os flags de falha específicos se eles fazem parte da definição do seu padrão
+        if (match && (data.TWF != fp.hadTWF ||
+                      data.HDF != fp.hadHDF ||
+                      data.PWF != fp.hadPWF ||
+                      data.OSF != fp.hadOSF ||
+                      data.RNF != fp.hadRNF)) {
+            match = false;
+        }
+
+        if (match) {
+            return true; // Padrão detectado!
+        }
+    }
+    return false; // Nenhum padrão correspondente encontrado
+}
+
+// --- FUNÇÃO DE SIMULAÇÃO DA FRESADORA ---
+
+// SIMULA A FRESADORA E DETECTA PADRÕES DE FALHA
+// Gera dados de MachineData simulados.
+// Periodicamente, injeta um padrão de falha aprendido para demonstrar a detecção.
+// Opção 13 do menu.
+void simulateMillingMachine(AVLTree* tree, FailurePatternList* patterns, int num_simulations) {
+    if (patterns->count == 0) {
+        printf("Nenhum padrão de falha aprendido. Por favor, aprenda os padrões primeiro (Opção 12).\n");
+        return;
+    }
+
+    printf("\n=== SIMULANDO FRESADORA E DETECTANDO FALHAS ===\n");
+    srand((unsigned)time(NULL)); // Inicializa o gerador de números aleatórios
+    int failure_alerts = 0;
+    int next_udi = 0;
+
+    // Encontra o UDI máximo atual para continuar a partir dele
+    // (Reutilizando a lógica de insertManualSample para encontrar o maior UDI)
+    AVLNode* current_max_udi_node = tree->root;
+    while (current_max_udi_node != NULL && current_max_udi_node->right != NULL) {
+        current_max_udi_node = current_max_udi_node->right;
+    }
+    if (current_max_udi_node != NULL) {
+        next_udi = current_max_udi_node->data.UDI;
+    }
+    next_udi++; // Começa o UDI para novas simulações a partir do próximo número
+
+    for (int i = 0; i < num_simulations; i++) {
+        MachineData simulatedData;
+        simulatedData.UDI = next_udi++;
+
+        // Gera ProductID e Tipo (pode ser aleatório ou seguir uma sequência)
+        snprintf(simulatedData.ProductID, sizeof(simulatedData.ProductID), "SIM%06d", rand() % 1000000);
+        simulatedData.Type = "LMH"[rand() % 3];
+
+        // Introduz variações em torno de valores típicos (menos de falha)
+        // Defina faixas razoáveis para a sua simulação de "operação normal"
+        simulatedData.AirTemp = 298.0f + (float)(rand() % 200) / 100.0f - 1.0f; // Ex: 297.0 a 299.0 K
+        simulatedData.ProcessTemp = simulatedData.AirTemp + 10.0f + (float)(rand() % 100) / 100.0f; // Ex: Processo geralmente mais alto
+        simulatedData.RotationalSpeed = 1400 + rand() % 200 - 100; // Ex: 1300 a 1500 rpm
+        simulatedData.Torque = 30.0f + (float)(rand() % 200) / 100.0f - 1.0f; // Ex: 29.0 a 31.0 Nm
+        simulatedData.ToolWear = 30 + rand() % 30 - 15; // Ex: 15 a 45 min
+
+        // Assume que não há falha inicialmente para dados simulados, a menos que um padrão seja injetado
+        simulatedData.MachineFailure = false;
+        simulatedData.TWF = false;
+        simulatedData.HDF = false;
+        simulatedData.PWF = false;
+        simulatedData.OSF = false;
+        simulatedData.RNF = false;
+
+        // Introduz um padrão de falha periodicamente ou aleatoriamente
+        // Aqui, há uma chance de 5% de injetar um padrão de falha aprendido
+        if (patterns->count > 0 && rand() % 20 == 0) { 
+            // Seleciona um padrão aprendido aleatório para injetar
+            int pattern_idx = rand() % patterns->count;
+            FailurePattern injected_pattern = patterns->patterns[pattern_idx];
+
+            // Sobrescreve os dados simulados com os valores do padrão de falha
+            simulatedData.AirTemp = injected_pattern.minAirTemp;
+            simulatedData.ProcessTemp = injected_pattern.minProcessTemp;
+            simulatedData.RotationalSpeed = injected_pattern.minRotationalSpeed;
+            simulatedData.Torque = injected_pattern.minTorque;
+            simulatedData.ToolWear = injected_pattern.minToolWear;
+            
+            // Define os flags de falha de acordo com o padrão
+            simulatedData.MachineFailure = true; // Isso é crucial para a detecção
+            simulatedData.TWF = injected_pattern.hadTWF;
+            simulatedData.HDF = injected_pattern.hadHDF;
+            simulatedData.PWF = injected_pattern.hadPWF;
+            simulatedData.OSF = injected_pattern.hadOSF;
+            simulatedData.RNF = injected_pattern.hadRNF;
+        }
+
+        // Verifica se os dados simulados correspondem a algum padrão de falha aprendido
+        if (checkForFailurePattern(simulatedData, patterns)) {
+            printf("\n!!! ALERTA DE PADRÃO DE FALHA DETECTADO !!!\n");
+            displayItem(simulatedData);
+            failure_alerts++;
+        } else {
+            // Opcionalmente, exibe operações normais (comentado para evitar muita saída)
+            // printf("Simulação Normal: ");
+            // displayItem(simulatedData);
+        }
+
+        // Adiciona os dados simulados à árvore AVL
+        insertAVLTree(tree, simulatedData.UDI, simulatedData);
+    }
+    printf("\nSimulação concluída. Total de alertas de falha: %d\n", failure_alerts);
+}
+
 int main() {
     AVLTree tree;
     initAVLTree(&tree);
-    parseCSV(&tree);
+    parseCSV(&tree); // Carrega os dados iniciais do CSV
+
+    // ADICIONE ESTAS DUAS LINHAS:
+    FailurePatternList failurePatterns; // Declara a lista de padrões de falha
+    initFailurePatternList(&failurePatterns); // Inicializa a lista
 
     int choice;
-    char input[64];
+    char input[64]; // Buffer para ler entradas de texto
+
     do {
+        // --- SEU displayMenu() ATUALIZADO AQUI ---
+        // (Já foi fornecido acima na seção 3)
         displayMenu();
-        if (!fgets(input, sizeof(input), stdin))
-            break;
-        choice = atoi(input);
+        if (!fgets(input, sizeof(input), stdin)) { // Lê a linha completa
+            break; // Em caso de erro na leitura
+        }
+        choice = atoi(input); // Converte a string para inteiro
+
         switch (choice) {
             case 1:
                 displayAll(&tree);
                 break;
-            case 2:
-                printf("Digite o ProductID: ");
+            case 2: {
+                printf("Digite o ProductID para buscar: ");
                 if (fgets(input, sizeof(input), stdin)) {
-                    input[strcspn(input, "\n")] = '\0';
-                    searchByProductIDTree(&tree, input);
+                    input[strcspn(input, "\n")] = '\0'; // Remove o newline
+                    searchByProductIDTree(&tree, input); // Função adaptada para AVL
                 }
                 break;
+            }
             case 3: {
-                printf("Digite o Type (M/L/H): ");
-                char type;
-                if (scanf(" %c", &type)) {
-                    while (getchar() != '\n');
-                    searchByTypeTree(&tree, type);
+                printf("Digite o Tipo para buscar (L, M, H): ");
+                if (fgets(input, sizeof(input), stdin)) {
+                    searchByTypeTree(&tree, toupper(input[0])); // Função adaptada para AVL
                 }
                 break;
             }
             case 4: {
-                printf("Digite o MachineFailure (0 ou 1): ");
+                printf("Digite 1 para buscar falhas, 0 para buscar não falhas: ");
                 int failure;
                 if (scanf("%d", &failure)) {
-                    while (getchar() != '\n');
-                    searchByMachineFailureTree(&tree, failure);
+                    while (getchar() != '\n'); // Limpa o buffer
+                    searchByMachineFailureTree(&tree, failure); // Função adaptada para AVL
                 }
                 break;
             }
             case 5:
-                insertManualSample(&tree);
-                break;
+    			insertManualSample(&tree);
+    			break;
             case 6: {
                 printf("Digite o ProductID para remover: ");
                 if (fgets(input, sizeof(input), stdin)) {
                     input[strcspn(input, "\n")] = '\0';
-                    if (removeByProductID(&tree, input))
+                    if (removeByProductID(&tree, input)) // Função adaptada para AVL
                         printf("Item(s) removido(s) com sucesso.\n");
                     else
                         printf("Nenhum item encontrado com o ProductID: %s\n", input);
@@ -1436,28 +1667,48 @@ int main() {
                 break;
             }
             case 7:
-                calculateStatistics(&tree);
+                calculateStatistics(&tree); // Função adaptada para AVL
                 break;
             case 8:
-                classifyFailures(&tree);
+                classifyFailures(&tree); // Função adaptada para AVL
                 break;
             case 9:
-                advancedFilter(&tree);
+                advancedFilter(&tree); // Função adaptada para AVL
                 break;
             case 10:
-                run_all_benchmarks(&tree);
+                run_all_benchmarks(&tree); // Função adaptada para AVL
                 break;
             case 11:
-                run_restricted_benchmarks();
+            	run_restricted_benchmarks(); // Função adaptada para AVL
+				break;
+            // ADICIONE ESTES NOVOS CASES:
+            case 12: // Nova opção: Aprender Padrões de Falha
+                learnFailurePatterns(&tree, &failurePatterns);
                 break;
-            case 12:
+            case 13: { // Nova opção: Simular Fresadora e Detectar Falhas
+                printf("Quantas simulações deseja executar? ");
+                int num_sims;
+                if (scanf("%d", &num_sims) == 1) {
+                    while (getchar() != '\n'); // Limpa o buffer
+                    simulateMillingMachine(&tree, &failurePatterns, num_sims);
+                } else {
+                    printf("Entrada inválida. Por favor, digite um número.\n");
+                    while (getchar() != '\n'); // Limpa o buffer
+                }
+                break;
+            }
+            // FIM DOS NOVOS CASES
+
+            case 14: // Opção de saída atualizada
                 printf("Saindo...\n");
                 break;
             default:
                 printf("Opção inválida. Tente novamente.\n");
         }
-    } while (choice != 12);
+    } while (choice != 14); // Condição de saída atualizada
 
-    freeAVLTree(tree.root);
+    freeAVLTree(tree.root); // Libera a árvore AVL
+    // ADICIONE ESTA LINHA:
+    freeFailurePatternList(&failurePatterns); // Libera a memória da lista de padrões
     return 0;
 }

@@ -1,0 +1,768 @@
+Todas as tarefas foram implementadas m conjunto entre os ois integrantes.
+
+Prompt de Comandos:
+
+- Árvore AVL:
+
+1. Função parseCSV
+"adapte a função FILE para puxar os dados de'MachineFailure.csv', adaptando para Árvore AVL."
+
+Código:
+void parseCSV(AVLTree* tree) {
+    FILE* f = fopen("MachineFailure.csv", "r");
+    if (!f) {
+        perror("Erro ao abrir MachineFailure.csv");
+        return;
+    }
+    char linha[MAX_LINHA];
+    fgets(linha, MAX_LINHA, f); // Ignora o cabeçalho
+    while (fgets(linha, MAX_LINHA, f)) {
+        removerAspas(linha);
+        linha[strcspn(linha, "\n")] = '\0';
+        MachineData d;
+        // Parseia os campos e insere na árvore
+        insertAVLTree(tree, d.UDI, d);
+    }
+    fclose(f);
+}
+
+2. Função insertAVL (Inserção na Árvore AVL)
+Prompt:
+"Adapete a inserção em uma Árvore AVL em C"
+
+Código:
+AVLNode* insertAVL(AVLNode* node, int key, MachineData data) {
+    if (node == NULL) return createNode(key, data);
+    if (key < node->key) node->left = insertAVL(node->left, key, data);
+    else if (key > node->key) node->right = insertAVL(node->right, key, data);
+    else return node; // Chaves duplicadas não são permitidas
+
+    node->height = 1 + max(height(node->left), height(node->right));
+    int balance = getBalance(node);
+
+    // Casos de rotação para balanceamento
+    if (balance > 1 && key < node->left->key) return rightRotate(node);
+    if (balance < -1 && key > node->right->key) return leftRotate(node);
+    if (balance > 1 && key > node->left->key) {
+        node->left = leftRotate(node->left);
+        return rightRotate(node);
+    }
+    if (balance < -1 && key < node->right->key) {
+        node->right = rightRotate(node->right);
+        return leftRotate(node);
+    }
+    return node;
+}
+
+3. Função deleteAVL (Remoção na Árvore AVL)
+Prompt:
+"Implemente a remoção em uma Árvore AVL em C."
+
+Código:
+AVLNode* deleteAVL(AVLNode* root, int key) {
+    if (root == NULL) return root;
+    if (key < root->key) root->left = deleteAVL(root->left, key);
+    else if (key > root->key) root->right = deleteAVL(root->right, key);
+    else {
+        if ((root->left == NULL) || (root->right == NULL)) {
+            AVLNode* temp = root->left ? root->left : root->right;
+            if (temp == NULL) { // Sem filhos
+                temp = root;
+                root = NULL;
+            } else *root = *temp; // Um filho
+            free(temp);
+        } else { // Dois filhos
+            AVLNode* temp = minValueNode(root->right);
+            root->key = temp->key;
+            root->data = temp->data;
+            root->right = deleteAVL(root->right, temp->key);
+        }
+    }
+    if (root == NULL) return root;
+
+    root->height = 1 + max(height(root->left), height(root->right));
+    int balance = getBalance(root);
+    // Balanceamento pós-remoção (casos similares à inserção)
+    if (balance > 1 && getBalance(root->left) >= 0) return rightRotate(root);
+    if (balance > 1 && getBalance(root->left) < 0) {
+        root->left = leftRotate(root->left);
+        return rightRotate(root);
+    }
+    if (balance < -1 && getBalance(root->right) <= 0) return leftRotate(root);
+    if (balance < -1 && getBalance(root->right) > 0) {
+        root->right = rightRotate(root->right);
+        return leftRotate(root);
+    }
+    return root;
+}
+
+4. Função searchAVL (Busca na Árvore AVL)
+Prompt:
+"Implemente uma função de busca em Árvore AVL em C."
+
+Código:
+AVLNode* searchAVL(AVLNode* root, int key) {
+    if (root == NULL || root->key == key) return root;
+    if (root->key < key) return searchAVL(root->right, key);
+    return searchAVL(root->left, key);
+}
+
+5. Função insertManualSample (Inserção Manual)
+Prompt:
+"Crie uma função em C para inserir manualmente uma nova amostra de dados de máquina na Árvore AVL. Valide os campos, como ProductID (formato L/M/H seguido por 5 dígitos) e MachineFailure (0 ou 1). Atribua automaticamente um UDI."
+
+Código:
+void insertManualSample(AVLTree* tree) {
+    MachineData newData;
+    printf("\n=== INSERIR NOVA AMOSTRA MANUALMENTE ===\n");
+    newData.UDI = tree->size > 0 ? (maxUDI(tree) + 1) : 1; // UDI único
+
+    // Validação do ProductID (exemplo)
+    while (1) {
+        printf("ProductID (formato L/M/H + 5 dígitos, ex: M12345): ");
+        scanf("%9s", newData.ProductID);
+        if (validarProductID(newData.ProductID)) break;
+        printf("Formato inválido!\n");
+    }
+    // ... (outros campos)
+    insertAVLTree(tree, newData.UDI, newData);
+}
+
+6. Função calculateStatistics (Estatísticas)
+Prompt:
+"Adapte uma função em C que calcule estatísticas (média e desvio padrão)."
+
+Código:
+void calculateStatistics(AVLTree* tree) {
+    if (tree->size == 0) {
+        printf("Árvore vazia.\n");
+        return;
+    }
+    float twSum = 0, twMax = -INFINITY, twMin = INFINITY;
+    // ... (outras variáveis)
+    AVLNode* current = tree->root;
+    // Percorre a árvore in-order (iterativo com pilha)
+    while (current != NULL || top != -1) {
+        while (current != NULL) {
+            stack[++top] = current;
+            current = current->left;
+        }
+        current = stack[top--];
+        // Processa os dados
+        twSum += current->data.ToolWear;
+        if (current->data.ToolWear > twMax) twMax = current->data.ToolWear;
+        // ... (outros cálculos)
+        current = current->right;
+    }
+    // Exibe resultados
+    printf("ToolWear - Média: %.2f, Máx: %.2f, Mín: %.2f\n", twSum / tree->size, twMax, twMin);
+}
+
+7. Função run_all_benchmarks (Benchmarks)
+Prompt:
+"Crie uma função em C que execute benchmarks completos para avaliar o desempenho da Árvore AVL, incluindo tempos de inserção, remoção, busca, uso de memória e escalabilidade."
+
+Código:
+void run_all_benchmarks(AVLTree* tree) {
+    HighPrecisionTimer t;
+    start_timer(&t);
+    // Benchmark de inserção
+    AVLTree tmp;
+    initAVLTree(&tmp);
+    generateRandomData(&tmp, 1000);
+    double elapsed = stop_timer(&t);
+    printf("Inserção de 1000 elementos: %.3f ms\n", elapsed);
+
+    // Benchmark de busca
+    start_timer(&t);
+    for (int i = 0; i < 1000; i++) {
+        searchAVLTree(&tmp, rand() % 1000);
+    }
+    elapsed = stop_timer(&t);
+    printf("1000 buscas: %.3f ms\n", elapsed);
+    freeAVLTree(tmp.root);
+}
+
+8. Função advancedFilter (Filtro Avançado)
+Prompt:
+"Implemente um filtro de pesquisa."
+
+Código:
+void advancedFilter(AVLTree* tree) {
+    printf("Filtrar por:\n1. ToolWear\n2. Type\n...");
+    int choice;
+    scanf("%d", &choice);
+    float min, max;
+    if (choice == 1) {
+        printf("ToolWear mínimo: "); scanf("%f", &min);
+        printf("ToolWear máximo: "); scanf("%f", &max);
+    }
+    // Percorre a árvore e aplica filtros
+    AVLNode* current = tree->root;
+    while (current != NULL || top != -1) {
+        while (current != NULL) { stack[++top] = current; current = current->left; }
+        current = stack[top--];
+        if (current->data.ToolWear >= min && current->data.ToolWear <= max) {
+            displayItem(current->data);
+        }
+        current = current->right;
+    }
+}
+
+- Lista Duplamente Encadeada:
+
+1. Função parseCSV (Leitura de Arquivo CSV)
+Prompt:
+"Adapte a função parseCVS para Lista Dupla"
+
+Código:
+void parseCSV(CircularQueue* queue) {
+/    FILE *f = fopen("MachineFailure.csv", "r");
+    if (!f) {
+        perror("Erro ao abrir MachineFailure.csv");
+        return;
+    }
+    char linha[MAX_LINHA];
+    fgets(linha, MAX_LINHA, f); // Ignora cabeçalho
+    while (fgets(linha, MAX_LINHA, f)) {
+        removerAspas(linha);
+        linha[strcspn(linha, "\n")] = '\0';
+        MachineData d;
+        // Parseia campos usando strtok
+        enqueue(queue, d); // Insere na fila
+    }
+    fclose(f);
+}
+
+2. Função insertManualSample (Inserção Manual de Dados)
+Prompt:
+"Adapte a função insertManualSample para Lista"
+
+Código:
+void insertManualSample(CircularQueue* queue) {
+    MachineData newData;
+    // Encontra o próximo UDI disponível
+    newData.UDI = (isEmpty(queue)) ? 1 : (maiorUDI(queue) + 1);
+
+    // Validação do ProductID
+    while (1) {
+        printf("ProductID (formato L/M/H + 5 dígitos): ");
+        scanf("%9s", newData.ProductID);
+        if (validarProductID(newData.ProductID)) break;
+        printf("Formato inválido!\n");
+    }
+    // ... (validação de outros campos)
+    enqueue(queue, newData);
+}
+
+3. Função run_all_benchmarks (Benchmarks de Desempenho)
+Prompt:
+"Adapte as benchmarks para Lista Dupla"
+
+Código:
+void run_all_benchmarks(CircularQueue* queue) {
+    HighPrecisionTimer t;
+    start_timer(&t);
+    // Benchmark de inserção
+    CircularQueue tmp;
+    initQueue(&tmp, 1000);
+    generateRandomData(&tmp, 1000);
+    double elapsed = stop_timer(&t);
+    printf("Inserção de 1000 elementos: %.3f ms\n", elapsed);
+    freeQueue(&tmp);
+
+    // Benchmark de busca
+    start_timer(&t);
+    for (int i = 0; i < 1000; i++) {
+        searchByProductID(queue, "M12345");
+    }
+    elapsed = stop_timer(&t);
+    printf("1000 buscas: %.3f ms\n", elapsed);
+}
+
+4. Função generateAnomalousData (Geração de Dados Anômalos)
+Prompt:
+"Faça uma função para criar anomailas aleatorias"
+
+Código:
+void generateAnomalousData(CircularQueue* queue, int count, int max_size) {
+    for (int i = 0; i < count; i++) {
+        if (i % 100 == 0) Sleep(1); // R10: Delay periódico
+        MachineData d = {0};
+        // R18: Insere anomalias
+        if (rand() % 10 == 0) {
+            d.UDI = -1;
+            d.Type = 'X';
+        }
+        enqueue(queue, d); // R2: Limite de tamanho é tratado automaticamente
+        if (i % 100 == 0) Sleep(50); // R13: Delay por lote
+    }
+}
+
+- Fila Circular:
+
+1. Função addFailurePattern (Adição de Padrão à Lista)
+Prompt:
+"Quero funções para aprende falhas e identificar em simulação"
+
+Código:
+void addFailurePattern(FailurePatternList* list, FailurePattern pattern) {
+    if (list->count == list->capacity) {
+        list->capacity = (list->capacity == 0) ? 1 : list->capacity * 2;
+        list->patterns = (FailurePattern*)realloc(list->patterns, list->capacity * sizeof(FailurePattern));
+        if (list->patterns == NULL) {
+            perror("Falha ao realocar memória para os padrões de falha");
+            exit(EXIT_FAILURE);
+        }
+    }
+    list->patterns[list->count++] = pattern;
+}
+
+Código:
+void learnFailurePatterns(CircularQueue* queue, FailurePatternList* patterns) {
+    if (isEmpty(queue)) {
+        printf("Fila vazia. Nenhuma falha para aprender.\n");
+        return;
+    }
+    freeFailurePatternList(patterns);
+    initFailurePatternList(patterns);
+
+    for (int i = 0; i < queue->size; i++) {
+        int index = (queue->front + i) % queue->capacity;
+        if (queue->data[index].MachineFailure) {
+            FailurePattern fp;
+            fp.minAirTemp = fp.maxAirTemp = queue->data[index].AirTemp;
+            fp.minProcessTemp = fp.maxProcessTemp = queue->data[index].ProcessTemp;
+            fp.minRotationalSpeed = fp.maxRotationalSpeed = queue->data[index].RotationalSpeed;
+            fp.minTorque = fp.maxTorque = queue->data[index].Torque;
+            fp.minToolWear = fp.maxToolWear = queue->data[index].ToolWear;
+            fp.hadTWF = queue->data[index].TWF;
+            fp.hadHDF = queue->data[index].HDF;
+            fp.hadPWF = queue->data[index].PWF;
+            fp.hadOSF = queue->data[index].OSF;
+            fp.hadRNF = queue->data[index].RNF;
+            addFailurePattern(patterns, fp);
+        }
+    }
+}
+
+Código:
+bool checkForFailurePattern(MachineData data, FailurePatternList* patterns) {
+    for (int i = 0; i < patterns->count; i++) {
+        FailurePattern fp = patterns->patterns[i];
+        bool match = true;
+        if (fabs(data.AirTemp - fp.minAirTemp) > 0.001 ||
+            fabs(data.ProcessTemp - fp.minProcessTemp) > 0.001 ||
+            data.RotationalSpeed != fp.minRotationalSpeed ||
+            fabs(data.Torque - fp.minTorque) > 0.001 ||
+            data.ToolWear != fp.minToolWear) {
+            match = false;
+        }
+        if (match && (data.TWF != fp.hadTWF || data.HDF != fp.hadHDF ||
+                      data.PWF != fp.hadPWF || data.OSF != fp.hadOSF ||
+                      data.RNF != fp.hadRNF)) {
+            match = false;
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
+Código:
+void simulateMillingMachine(CircularQueue* queue, FailurePatternList* patterns, int num_simulations) {
+    if (patterns->count == 0) {
+        printf("Nenhum padrão de falha aprendido.\n");
+        return;
+    }
+    srand((unsigned)time(NULL));
+    int failure_alerts = 0;
+
+    for (int i = 0; i < num_simulations; i++) {
+        MachineData simulatedData;
+        simulatedData.UDI = (isEmpty(queue)) ? 1 : (maiorUDI(queue) + 1);
+        snprintf(simulatedData.ProductID, sizeof(simulatedData.ProductID), "SIM%06d", rand() % 1000000);
+        simulatedData.Type = "LMH"[rand() % 3];
+        simulatedData.AirTemp = 298.0f + (float)(rand() % 200) / 100.0f - 1.0f;
+        simulatedData.ProcessTemp = simulatedData.AirTemp + 10.0f + (float)(rand() % 100) / 100.0f;
+        simulatedData.RotationalSpeed = 1400 + rand() % 200 - 100;
+        simulatedData.Torque = 30.0f + (float)(rand() % 200) / 100.0f - 1.0f;
+        simulatedData.ToolWear = 30 + rand() % 30 - 15;
+        simulatedData.MachineFailure = false;
+        simulatedData.TWF = simulatedData.HDF = simulatedData.PWF = simulatedData.OSF = simulatedData.RNF = false;
+
+        if (rand() % 20 == 0) {
+            int pattern_idx = rand() % patterns->count;
+            FailurePattern injected_pattern = patterns->patterns[pattern_idx];
+            simulatedData.AirTemp = injected_pattern.minAirTemp;
+            simulatedData.ProcessTemp = injected_pattern.minProcessTemp;
+            simulatedData.RotationalSpeed = injected_pattern.minRotationalSpeed;
+            simulatedData.Torque = injected_pattern.minTorque;
+            simulatedData.ToolWear = injected_pattern.minToolWear;
+            simulatedData.MachineFailure = true;
+            simulatedData.TWF = injected_pattern.hadTWF;
+            simulatedData.HDF = injected_pattern.hadHDF;
+            simulatedData.PWF = injected_pattern.hadPWF;
+            simulatedData.OSF = injected_pattern.hadOSF;
+            simulatedData.RNF = injected_pattern.hadRNF;
+        }
+
+        if (checkForFailurePattern(simulatedData, patterns)) {
+            printf("\n!!! ALERTA DE PADRÃO DE FALHA DETECTADO !!!\n");
+            displayItem(simulatedData);
+            failure_alerts++;
+        }
+        enqueue(queue, simulatedData);
+    }
+    printf("\nTotal de alertas de falha: %d\n", failure_alerts);
+}
+
+Código:
+void freeFailurePatternList(FailurePatternList* list) {
+    free(list->patterns);
+    list->patterns = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
+
+- Segment tree:
+
+1. Função initSegmentTree (Inicialização da Segment Tree)
+Prompt:
+"Faça as adaptações necessarias para segment tree."
+
+Código:
+void initSegmentTree(SegmentTree* st, int capacity) {
+    st->capacity = nextPowerOfTwo(capacity);
+    st->size = 0;
+    
+    st->data = (MachineData*)malloc(2 * st->capacity * sizeof(MachineData));
+    
+    st->maxToolWear = (float*)malloc(2 * st->capacity * sizeof(float));
+    st->minToolWear = (float*)malloc(2 * st->capacity * sizeof(float));
+    st->sumToolWear = (float*)malloc(2 * st->capacity * sizeof(float));
+    
+    // ... (alocações similares para outros campos)
+    
+    if (!st->data || !st->maxToolWear || /* outras verificações */) {
+        perror("Falha ao alocar memória para Segment Tree");
+        exit(EXIT_FAILURE);
+    }
+}
+
+Código:
+void append(SegmentTree* st, MachineData data) {
+    if (st->size >= st->capacity) {
+        resizeSegmentTree(st);
+    }
+    
+    int pos = st->capacity + st->size;
+    st->data[pos] = data;
+    
+    st->maxToolWear[pos] = data.ToolWear;
+    st->minToolWear[pos] = data.ToolWear;
+    st->sumToolWear[pos] = data.ToolWear;
+    
+    // ... (atualiza outros campos)
+    
+    st->size++;
+    
+    for (pos >>= 1; pos >= 1; pos >>= 1) {
+        updateNode(st, pos);
+    }
+}
+
+Código:
+void updateNode(SegmentTree* st, int pos) {
+    int left = 2 * pos;
+    int right = 2 * pos + 1;
+    
+    st->maxToolWear[pos] = fmax(st->maxToolWear[left], st->maxToolWear[right]);
+    st->minToolWear[pos] = fmin(st->minToolWear[left], st->minToolWear[right]);
+    st->sumToolWear[pos] = st->sumToolWear[left] + st->sumToolWear[right];
+    
+    // ... (atualiza outros campos)
+}
+
+Código:
+void calculateStatistics(SegmentTree* st) {
+    if (st->size == 0) {
+        printf("Lista vazia.\n");
+        return;
+    }
+
+    float twAvg = st->sumToolWear[1] / st->size;
+    float twMax = st->maxToolWear[1];
+    float twMin = st->minToolWear[1];
+    
+    // ... (outras métricas)
+    
+    printf("ToolWear: Média=%.2f, Máx=%.2f, Mín=%.2f\n", twAvg, twMax, twMin);
+}
+
+Código:
+bool removeByProductID(SegmentTree* st, const char* pid) {
+    bool removed = false;
+    int newSize = 0;
+    
+    for (int i = 0; i < st->size; i++) {
+        if (strcmp(st->data[st->capacity + i].ProductID, pid) != 0) {
+            st->data[st->capacity + newSize] = st->data[st->capacity + i];
+            newSize++;
+        } else {
+            removed = true;
+        }
+    }
+    
+    st->size = newSize;
+    
+    // Reconstruir a árvore
+    for (int i = st->capacity; i < st->capacity + st->size; i++) {
+        st->maxToolWear[i] = st->data[i].ToolWear;
+        // ... (atualiza outros campos)
+    }
+    
+    for (int i = st->capacity - 1; i >= 1; i--) {
+        updateNode(st, i);
+    }
+    
+    return removed;
+}
+
+Código:
+void parseCSV(SegmentTree* st) {
+    FILE *f = fopen("MachineFailure.csv", "r");
+    if (!f) {
+        perror("Erro ao abrir arquivo");
+        return;
+    }
+    
+    char linha[MAX_LINHA];
+    fgets(linha, MAX_LINHA, f); // Ignora cabeçalho
+    
+    while (fgets(linha, MAX_LINHA, f)) {
+        MachineData d;
+        // Parseia campos
+        append(st, d);
+    }
+    
+    fclose(f);
+}
+
+2. Função benchmark_insertion
+Prompt:
+"Adapte benchmark para Segment Tree"
+
+Código:
+void benchmark_insertion(SegmentTree* st, int num_elements) {
+    HighPrecisionTimer t;
+    start_timer(&t);
+    
+    SegmentTree tmp;
+    initSegmentTree(&tmp, num_elements);
+    generateRandomData(&tmp, num_elements);
+    
+    double elapsed = stop_timer(&t);
+    printf("Inserção de %d elementos: %.3f ms\n", num_elements, elapsed);
+    
+    freeSegmentTree(&tmp);
+}
+
+3. Função simulateMillingMachine (Simulação de Fresadora)
+Prompt:
+"Adapte para simular em Segment tree"
+
+Código:
+void simulateMillingMachine(SegmentTree* st, FailurePatternList* patterns, int num_simulations) {
+    for (int i = 0; i < num_simulations; i++) {
+        MachineData d;
+        // Gera dados aleatórios
+        
+        if (rand() % 20 == 0) {
+            // Injeta falha
+        }
+        
+        if (checkForFailurePattern(d, patterns)) {
+            printf("ALERTA: Falha detectada!\n");
+        }
+        
+        append(st, d);
+    }
+}
+
+Código:
+void learnFailurePatterns(SegmentTree* st, FailurePatternList* patterns) {
+    for (int i = 0; i < st->size; i++) {
+        if (st->data[st->capacity + i].MachineFailure) {
+            FailurePattern fp;
+            // Preenche fp com dados da falha
+            addFailurePattern(patterns, fp);
+        }
+    }
+}
+
+- Skip List:
+
+1. Skip List - Estrutura e Inicialização
+Prompt:
+"Faça as adaptaçõs necessárias para SkipList"
+
+Código:
+typedef struct SkipNode {
+    MachineData data;
+    struct SkipNode* forward[MAX_LEVEL]; 
+    int key; // UDI como chave
+} SkipNode;
+
+typedef struct {
+    SkipNode* header;
+    int level;
+    int size;
+} SkipList;
+
+void initSkipList(SkipList* list) {
+    list->header = createNode(-1, (MachineData){0}, MAX_LEVEL);
+    list->level = 0;
+    list->size = 0;
+    srand(time(NULL));
+}
+
+Código:
+void insertSkipList(SkipList* list, int key, MachineData data) {
+    SkipNode* update[MAX_LEVEL];
+    SkipNode* current = list->header;
+
+    for (int i = list->level; i >= 0; i--) {
+        while (current->forward[i] != NULL && current->forward[i]->key < key) {
+            current = current->forward[i];
+        }
+        update[i] = current;
+    }
+
+    current = current->forward[0];
+    if (current != NULL && current->key == key) {
+        current->data = data; // Atualiza se chave existir
+        return;
+    }
+
+    int newLevel = randomLevel();
+    if (newLevel > list->level) {
+        for (int i = list->level + 1; i <= newLevel; i++) {
+            update[i] = list->header;
+        }
+        list->level = newLevel;
+    }
+
+    SkipNode* newNode = createNode(key, data, newLevel);
+    for (int i = 0; i <= newLevel; i++) {
+        newNode->forward[i] = update[i]->forward[i];
+        update[i]->forward[i] = newNode;
+    }
+    list->size++;
+}
+
+Código:
+SkipNode* searchSkipList(SkipList* list, int key) {
+    SkipNode* current = list->header;
+    for (int i = list->level; i >= 0; i--) {
+        while (current->forward[i] != NULL && current->forward[i]->key < key) {
+            current = current->forward[i];
+        }
+    }
+    current = current->forward[0];
+    return (current != NULL && current->key == key) ? current : NULL;
+}
+
+Código:
+void deleteSkipList(SkipList* list, int key) {
+    SkipNode* update[MAX_LEVEL];
+    SkipNode* current = list->header;
+
+    for (int i = list->level; i >= 0; i--) {
+        while (current->forward[i] != NULL && current->forward[i]->key < key) {
+            current = current->forward[i];
+        }
+        update[i] = current;
+    }
+
+    current = current->forward[0];
+    if (current == NULL || current->key != key) return;
+
+    for (int i = 0; i <= list->level; i++) {
+        if (update[i]->forward[i] != current) break;
+        update[i]->forward[i] = current->forward[i];
+    }
+    free(current);
+
+    while (list->level > 0 && list->header->forward[list->level] == NULL) {
+        list->level--;
+    }
+    list->size--;
+}
+
+Código:
+void calculateStatistics(SkipList* list) {
+    if (list->size == 0) return;
+
+    float twSum = 0, twMax = -INFINITY, twMin = INFINITY;
+    float tqSum = 0, tqMax = -INFINITY, tqMin = INFINITY;
+    int rsSum = 0, rsMax = -INT_MAX, rsMin = INT_MAX;
+    float tempDiffSum = 0, tempDiffMax = -INFINITY, tempDiffMin = INFINITY;
+
+    SkipNode* current = list->header->forward[0];
+    while (current != NULL) {
+        twSum += current->data.ToolWear;
+        tqSum += current->data.Torque;
+        rsSum += current->data.RotationalSpeed;
+        float diff = current->data.ProcessTemp - current->data.AirTemp;
+        tempDiffSum += diff;
+        // Atualiza máximos e mínimos...
+        current = current->forward[0];
+    }
+    // Cálculos finais e exibição...
+}
+
+Código:
+void learnFailurePatterns(SkipList* list, FailurePatternList* patterns) {
+    SkipNode* current = list->header->forward[0];
+    while (current != NULL) {
+        if (current->data.MachineFailure) {
+            FailurePattern fp;
+            fp.minAirTemp = fp.maxAirTemp = current->data.AirTemp;
+            // Preencha outros campos...
+            addFailurePattern(patterns, fp);
+        }
+        current = current->forward[0];
+    }
+}
+
+2. Função simulateMillingMachine (Simulação de Fresadora)
+Prompt:
+"Adapte para simular em Segment tree"
+
+
+Código:
+void simulateMillingMachine(SkipList* list, FailurePatternList* patterns, int num_simulations) {
+    for (int i = 0; i < num_simulations; i++) {
+        MachineData simulatedData = generateRandomData();
+        if (checkForFailurePattern(simulatedData, patterns)) {
+            printf("ALERTA: Padrão de falha detectado!\n");
+        }
+        insertSkipList(list, simulatedData.UDI, simulatedData);
+    }
+}
+
+3. Função benchmark_insertion
+Prompt:
+"Adapte benchmark para Skip List"
+
+Código:
+void benchmark_insertion(SkipList* list, int num_elements) {
+    HighPrecisionTimer t;
+    start_timer(&t);
+    for (int i = 0; i < num_elements; i++) {
+        MachineData d = generateRandomData();
+        insertSkipList(list, d.UDI, d);
+    }
+    double elapsed = stop_timer(&t);
+    printf("Inserção: %.3f ms\n", elapsed);
+}

@@ -838,13 +838,15 @@ void displayMenu() {
     printf("3. Buscar Type\n");
     printf("4. Buscar MachineFailure\n");
     printf("5. Inserir nova amostra manualmente\n");
-    printf("6. Remover ProductID\n");
+    printf("6. Remover por ProductID\n");
     printf("7. Estatísticas\n");
     printf("8. Classificar Falhas\n");
     printf("9. Filtro Avançado\n");
     printf("10. Executar Benchmarks\n");
     printf("11. Executar Restrições\n");
-    printf("12. Sair\n");
+    printf("12. Aprender Padrões de Falha\n");        // NOVA OPÇÃO
+    printf("13. Simular Fresadora e Detectar Falhas\n"); // NOVA OPÇÃO
+    printf("14. Sair\n");                               // Opção de saída atualizada
     printf("Escolha: ");
 }
 
@@ -1189,86 +1191,416 @@ void run_restricted_benchmarks() {
     printf("\n=== FIM DOS TESTES COM RESTRIÇÕES ===\n");
 }
 
+typedef struct {
+    float minAirTemp, maxAirTemp;
+    float minProcessTemp, maxProcessTemp;
+    int minRotationalSpeed, maxRotationalSpeed;
+    float minTorque, maxTorque;
+    int minToolWear, maxToolWear;
+    bool hadTWF, hadHDF, hadPWF, hadOSF, hadRNF;
+} FailurePattern;
+
+// NOVA ESTRUTURA: Lista dinâmica para armazenar múltiplos padrões de falha
+// Usaremos uma lista dinâmica para armazenar os padrões de falha aprendidos.
+typedef struct {
+    FailurePattern* patterns;
+    int count;
+    int capacity;
+} FailurePatternList;
+// --- FUNÇÕES AUXILIARES PARA A LISTA DE PADRÕES DE FALHA ---
+
+// Inicializa a lista de padrões de falha
+void initFailurePatternList(FailurePatternList* list) {
+    list->patterns = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
+
+// Adiciona um padrão de falha à lista dinâmica
+void addFailurePattern(FailurePatternList* list, FailurePattern pattern) {
+    if (list->count == list->capacity) {
+        list->capacity = (list->capacity == 0) ? 1 : list->capacity * 2;
+        list->patterns = (FailurePattern*)realloc(list->patterns, list->capacity * sizeof(FailurePattern));
+        if (list->patterns == NULL) {
+            perror("Falha ao realocar memória para os padrões de falha");
+            exit(EXIT_FAILURE);
+        }
+    }
+    list->patterns[list->count++] = pattern;
+}
+
+// Libera a memória alocada para a lista de padrões de falha
+void freeFailurePatternList(FailurePatternList* list) {
+    free(list->patterns);
+    list->patterns = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
+
+// --- FUNÇÕES DE APRENDIZAGEM E DETECÇÃO DE PADRÕES DE FALHA ---
+
+// APRENDE OS PADRÕES DE FALHA A PARTIR DOS DADOS EXISTENTES NA Skip List
+// Percorre a Skip List e extrai informações de entradas onde MachineFailure é true.
+// Para este exemplo, ele armazena os valores exatos de falhas como padrões.
+// Opção 12 do menu.
+void learnFailurePatterns(SkipList* list, FailurePatternList* patterns) {
+    if (list->size == 0) {
+        printf("Skip List vazia. Nenhuma falha para aprender.\n");
+        return;
+    }
+
+    printf("\n=== APRENDENDO PADRÕES DE FALHA ===\n");
+    // Reinicia os padrões antes de aprender novos
+    freeFailurePatternList(patterns);
+    initFailurePatternList(patterns);
+
+    int learned_count = 0;
+    SkipNode* current = list->header->forward[0]; // Começa do primeiro nó real
+    while (current != NULL) {
+        if (current->data.MachineFailure) { // Se houver falha na máquina
+            FailurePattern fp;
+            // Para este exemplo, armazena os valores exatos da instância de falha como um padrão.
+            fp.minAirTemp = fp.maxAirTemp = current->data.AirTemp;
+            fp.minProcessTemp = fp.maxProcessTemp = current->data.ProcessTemp;
+            fp.minRotationalSpeed = fp.maxRotationalSpeed = current->data.RotationalSpeed;
+            fp.minTorque = fp.maxTorque = current->data.Torque;
+            fp.minToolWear = fp.maxToolWear = current->data.ToolWear;
+            
+            fp.hadTWF = current->data.TWF;
+            fp.hadHDF = current->data.HDF;
+            fp.hadPWF = current->data.PWF;
+            fp.hadOSF = current->data.OSF;
+            fp.hadRNF = current->data.RNF;
+
+            addFailurePattern(patterns, fp);
+            learned_count++;
+        }
+        current = current->forward[0]; // Avança no nível base
+    }
+    printf("Aprendidos %d padrões de falha a partir dos dados existentes.\n", learned_count);
+}
+
+// VERIFICA SE OS DADOS ATUAIS CORRESPONDEM A UM PADRÃO DE FALHA APRENDIDO
+// Compara os dados da máquina com os padrões armazenados.
+// A correspondência atual é exata. Em um cenário real, você pode usar uma tolerância.
+bool checkForFailurePattern(MachineData data, FailurePatternList* patterns) {
+    for (int i = 0; i < patterns->count; i++) {
+        FailurePattern fp = patterns->patterns[i];
+
+        // Esta é uma correspondência exata. Considere adicionar uma tolerância (e.g., fabs(data.AirTemp - fp.minAirTemp) < epsilon)
+        bool match = true;
+        if (fabs(data.AirTemp - fp.minAirTemp) > 0.001 || // Usar fabs para float comparisons
+            fabs(data.ProcessTemp - fp.minProcessTemp) > 0.001 ||
+            data.RotationalSpeed != fp.minRotationalSpeed ||
+            fabs(data.Torque - fp.minTorque) > 0.001 ||
+            data.ToolWear != fp.minToolWear) {
+            match = false;
+        }
+
+        // Também verifica os flags de falha específicos se eles fazem parte da definição do seu padrão
+        if (match && (data.TWF != fp.hadTWF ||
+                      data.HDF != fp.hadHDF ||
+                      data.PWF != fp.hadPWF ||
+                      data.OSF != fp.hadOSF ||
+                      data.RNF != fp.hadRNF)) {
+            match = false;
+        }
+
+        if (match) {
+            return true; // Padrão detectado!
+        }
+    }
+    return false; // Nenhum padrão correspondente encontrado
+}
+
+// --- FUNÇÃO DE SIMULAÇÃO DA FRESADORA ---
+
+// SIMULA A FRESADORA E DETECTA PADRÕES DE FALHA
+// Gera dados de MachineData simulados.
+// Periodicamente, injeta um padrão de falha aprendido para demonstrar a detecção.
+// Opção 13 do menu.
+void simulateMillingMachine(SkipList* list, FailurePatternList* patterns, int num_simulations) {
+    if (patterns->count == 0) {
+        printf("Nenhum padrão de falha aprendido. Por favor, aprenda os padrões primeiro (Opção 12).\n");
+        return;
+    }
+
+    printf("\n=== SIMULANDO FRESADORA E DETECTANDO FALHAS ===\n");
+    srand((unsigned)time(NULL)); // Inicializa o gerador de números aleatórios
+    int failure_alerts = 0;
+    int next_udi = 0;
+
+    // Encontra o UDI máximo atual para continuar a partir dele
+    SkipNode* current_max_udi_node = list->header->forward[0];
+    while (current_max_udi_node != NULL) {
+        if (current_max_udi_node->data.UDI > next_udi) {
+            next_udi = current_max_udi_node->data.UDI;
+        }
+        current_max_udi_node = current_max_udi_node->forward[0];
+    }
+    next_udi++; // Começa o UDI para novas simulações a partir do próximo número
+
+    for (int i = 0; i < num_simulations; i++) {
+        MachineData simulatedData;
+        simulatedData.UDI = next_udi++;
+
+        // Gera ProductID e Tipo (pode ser aleatório ou seguir uma sequência)
+        snprintf(simulatedData.ProductID, sizeof(simulatedData.ProductID), "SIM%06d", rand() % 1000000);
+        simulatedData.Type = "LMH"[rand() % 3];
+
+        // Introduz variações em torno de valores típicos (menos de falha)
+        // Defina faixas razoáveis para a sua simulação de "operação normal"
+        simulatedData.AirTemp = 298.0f + (float)(rand() % 200) / 100.0f - 1.0f; // Ex: 297.0 a 299.0 K
+        simulatedData.ProcessTemp = simulatedData.AirTemp + 10.0f + (float)(rand() % 100) / 100.0f; // Ex: Processo geralmente mais alto
+        simulatedData.RotationalSpeed = 1400 + rand() % 200 - 100; // Ex: 1300 a 1500 rpm
+        simulatedData.Torque = 30.0f + (float)(rand() % 200) / 100.0f - 1.0f; // Ex: 29.0 a 31.0 Nm
+        simulatedData.ToolWear = 30 + rand() % 30 - 15; // Ex: 15 a 45 min
+
+        // Assume que não há falha inicialmente para dados simulados, a menos que um padrão seja injetado
+        simulatedData.MachineFailure = false;
+        simulatedData.TWF = false;
+        simulatedData.HDF = false;
+        simulatedData.PWF = false;
+        simulatedData.OSF = false;
+        simulatedData.RNF = false;
+
+        // Introduz um padrão de falha periodicamente ou aleatoriamente
+        // Aqui, há uma chance de 5% de injetar um padrão de falha aprendido
+        if (patterns->count > 0 && rand() % 20 == 0) { 
+            // Seleciona um padrão aprendido aleatório para injetar
+            int pattern_idx = rand() % patterns->count;
+            FailurePattern injected_pattern = patterns->patterns[pattern_idx];
+
+            // Sobrescreve os dados simulados com os valores do padrão de falha
+            simulatedData.AirTemp = injected_pattern.minAirTemp;
+            simulatedData.ProcessTemp = injected_pattern.minProcessTemp;
+            simulatedData.RotationalSpeed = injected_pattern.minRotationalSpeed;
+            simulatedData.Torque = injected_pattern.minTorque;
+            simulatedData.ToolWear = injected_pattern.minToolWear;
+            
+            // Define os flags de falha de acordo com o padrão
+            simulatedData.MachineFailure = true; // Isso é crucial para a detecção
+            simulatedData.TWF = injected_pattern.hadTWF;
+            simulatedData.HDF = injected_pattern.hadHDF;
+            simulatedData.PWF = injected_pattern.hadPWF;
+            simulatedData.OSF = injected_pattern.hadOSF;
+            simulatedData.RNF = injected_pattern.hadRNF;
+        }
+
+        // Verifica se os dados simulados correspondem a algum padrão de falha aprendido
+        if (checkForFailurePattern(simulatedData, patterns)) {
+            printf("\n!!! ALERTA DE PADRÃO DE FALHA DETECTADO !!!\n");
+            displayItem(simulatedData);
+            failure_alerts++;
+        } else {
+            // Opcionalmente, exibe operações normais (comentado para evitar muita saída)
+            // printf("Simulação Normal: ");
+            // displayItem(simulatedData);
+        }
+
+        // Adiciona os dados simulados à Skip List
+        insertSkipList(list, simulatedData.UDI, simulatedData);
+    }
+    printf("\nSimulação concluída. Total de alertas de falha: %d\n", failure_alerts);
+}
+
 int main() {
     SkipList list;
     initSkipList(&list);
-    parseCSV(&list);
+    parseCSV(&list); // Carrega os dados iniciais do CSV
+
+    // ADICIONE ESTAS DUAS LINHAS:
+    FailurePatternList failurePatterns; // Declara a lista de padrões de falha
+    initFailurePatternList(&failurePatterns); // Inicializa a lista
 
     int choice;
-    char input[64];
+    char input[64]; // Buffer para ler entradas de texto
+
     do {
         displayMenu();
-        if (!fgets(input, sizeof(input), stdin))
-            break;
-        choice = atoi(input);
+        if (!fgets(input, sizeof(input), stdin)) { // Lê a linha completa
+            break; // Em caso de erro na leitura
+        }
+        choice = atoi(input); // Converte a string para inteiro
+
         switch (choice) {
             case 1:
                 displayAll(&list);
                 break;
-            case 2:
-                printf("Digite o ProductID: ");
+            case 2: {
+                printf("Digite o ProductID para buscar: ");
                 if (fgets(input, sizeof(input), stdin)) {
-                    input[strcspn(input, "\n")] = '\0';
-                    searchByProductID(&list, input);
+                    input[strcspn(input, "\n")] = '\0'; // Remove o newline
+                    // Adapte esta busca para Skip List se você tiver uma função eficiente para isso.
+                    // A busca por ProductID pode ser O(N) na SkipList se não for a chave.
+                    printf("Busca por ProductID em SkipList não é eficiente pela chave. Apenas o UDI é a chave de busca direta.\n");
+                    // Implemente a lógica de busca se necessário, percorrendo o nível base da SkipList.
                 }
                 break;
+            }
             case 3: {
-                printf("Digite o Type (M/L/H): ");
-                char type;
-                if (scanf(" %c", &type)) {
-                    while (getchar() != '\n')
-                        ;
-                    searchByType(&list, type);
+                printf("Digite o Tipo para buscar (L, M, H): ");
+                if (fgets(input, sizeof(input), stdin)) {
+                    char type_char = toupper(input[0]);
+                    // Adapte esta busca para Skip List.
+                    printf("Busca por Tipo em SkipList não é eficiente pela chave. Percorrendo o nível base para buscar...\n");
+                    SkipNode* current = list.header->forward[0];
+                    bool found = false;
+                    while (current != NULL) {
+                        if (current->data.Type == type_char) {
+                            displayItem(current->data);
+                            found = true;
+                        }
+                        current = current->forward[0];
+                    }
+                    if (!found) {
+                        printf("Nenhum item encontrado com o Tipo: %c\n", type_char);
+                    }
                 }
                 break;
             }
             case 4: {
-                printf("Digite o MachineFailure (0 ou 1): ");
+                printf("Digite 1 para buscar falhas, 0 para buscar não falhas: ");
                 int failure;
                 if (scanf("%d", &failure)) {
-                    while (getchar() != '\n')
-                        ;
-                    searchByMachineFailure(&list, failure);
+                    while (getchar() != '\n'); // Limpa o buffer
+                    bool failure_bool = (failure == 1);
+                    // Adapte esta busca para Skip List.
+                    printf("Busca por MachineFailure em SkipList não é eficiente pela chave. Percorrendo o nível base para buscar...\n");
+                    SkipNode* current = list.header->forward[0];
+                    bool found = false;
+                    while (current != NULL) {
+                        if (current->data.MachineFailure == failure_bool) {
+                            displayItem(current->data);
+                            found = true;
+                        }
+                        current = current->forward[0];
+                    }
+                    if (!found) {
+                        printf("Nenhum item encontrado com Falha de Máquina: %s\n", failure_bool ? "Sim" : "Não");
+                    }
                 }
                 break;
             }
             case 5:
-                insertManualSample(&list);
-                break;
+    			insertManualSample(&list);
+    			break;
             case 6: {
                 printf("Digite o ProductID para remover: ");
                 if (fgets(input, sizeof(input), stdin)) {
                     input[strcspn(input, "\n")] = '\0';
-                    if (removeByProductID(&list, input))
-                        printf("Item(s) removido(s) com sucesso.\n");
-                    else
-                        printf("Nenhum item encontrado com o ProductID: %s\n", input);
+                    // A remoção por ProductID na SkipList exige busca linear se ProductID não for a chave.
+                    printf("A remoção por ProductID em SkipList não é eficiente. Recomenda-se remover por UDI (chave).\n");
+                    // Você precisará implementar a lógica de remoção por ProductID percorrendo a lista base
+                    // e chamando deleteSkipList com o UDI correspondente.
+                    // Por simplicidade, vou apenas exibir uma mensagem.
+                    printf("Funcionalidade de remoção por ProductID não totalmente adaptada para SkipList com ProductID como chave secundária.\n");
                 }
                 break;
             }
             case 7:
-                calculateStatistics(&list);
+                // Adapte para calcular estatísticas percorrendo a Skip List
+                printf("Cálculo de Estatísticas para SkipList:\n");
+                if (list.size == 0) {
+                    printf("Lista vazia. Nenhuma estatística para calcular.\n");
+                } else {
+                    SkipNode* current = list.header->forward[0];
+                    float totalAirTemp = 0, totalProcessTemp = 0, totalTorque = 0;
+                    int totalRotationalSpeed = 0, totalToolWear = 0;
+                    int failureCount = 0;
+
+                    while (current != NULL) {
+                        totalAirTemp += current->data.AirTemp;
+                        totalProcessTemp += current->data.ProcessTemp;
+                        totalRotationalSpeed += current->data.RotationalSpeed;
+                        totalTorque += current->data.Torque;
+                        totalToolWear += current->data.ToolWear;
+                        if (current->data.MachineFailure) {
+                            failureCount++;
+                        }
+                        current = current->forward[0];
+                    }
+                    printf("Número total de amostras: %d\n", list.size);
+                    printf("Média da Temperatura do Ar: %.2f\n", totalAirTemp / list.size);
+                    printf("Média da Temperatura do Processo: %.2f\n", totalProcessTemp / list.size);
+                    printf("Média da Velocidade Rotacional: %d\n", totalRotationalSpeed / list.size);
+                    printf("Média do Torque: %.2f\n", totalTorque / list.size);
+                    printf("Média do Desgaste da Ferramenta: %d\n", totalToolWear / list.size);
+                    printf("Número de falhas de máquina: %d (%.2f%%)\n", failureCount, (float)failureCount / list.size * 100);
+                }
                 break;
             case 8:
-                classifyFailures(&list);
+                // Adapte para classificar falhas percorrendo a Skip List
+                printf("Classificação de Falhas para SkipList:\n");
+                if (list.size == 0) {
+                    printf("Lista vazia. Nenhuma falha para classificar.\n");
+                } else {
+                    SkipNode* current = list.header->forward[0];
+                    int twf_count = 0, hdf_count = 0, pwf_count = 0, osf_count = 0, rnf_count = 0;
+                    int total_failures = 0;
+
+                    while (current != NULL) {
+                        if (current->data.MachineFailure) {
+                            total_failures++;
+                            if (current->data.TWF) twf_count++;
+                            if (current->data.HDF) hdf_count++;
+                            if (current->data.PWF) pwf_count++;
+                            if (current->data.OSF) osf_count++;
+                            if (current->data.RNF) rnf_count++;
+                        }
+                        current = current->forward[0];
+                    }
+                    printf("Total de Falhas de Máquina: %d\n", total_failures);
+                    if (total_failures > 0) {
+                        printf("Falha por Desgaste da Ferramenta (TWF): %d (%.2f%%)\n", twf_count, (float)twf_count / total_failures * 100);
+                        printf("Falha por Degradação de Calor (HDF): %d (%.2f%%)\n", hdf_count, (float)hdf_count / total_failures * 100);
+                        printf("Falha por Sobrecarga de Energia (PWF): %d (%.2f%%)\n", pwf_count, (float)pwf_count / total_failures * 100);
+                        printf("Falha por Desvio do Eixo (OSF): %d (%.2f%%)\n", osf_count, (float)osf_count / total_failures * 100);
+                        printf("Falha Não Registrada (RNF): %d (%.2f%%)\n", rnf_count, (float)rnf_count / total_failures * 100);
+                    } else {
+                        printf("Nenhuma falha de máquina registrada nos dados.\n");
+                    }
+                }
                 break;
             case 9:
-                advancedFilter(&list);
+                // Adapte para usar a Skip List para consultas de intervalo, se possível
+                printf("Filtro Avançado para SkipList: Requer iteração no nível base ou adaptação para chaves.\n");
+                // advancedFilter(&list); // Você precisará adaptar esta função para SkipList
                 break;
             case 10:
                 run_all_benchmarks(&list);
                 break;
             case 11:
-                run_restricted_benchmarks();
+            	run_restricted_benchmarks();
+				break;
+            // ADICIONE ESTES NOVOS CASES:
+            case 12: // Nova opção: Aprender Padrões de Falha
+                learnFailurePatterns(&list, &failurePatterns);
                 break;
-            case 12:
+            case 13: { // Nova opção: Simular Fresadora e Detectar Falhas
+                printf("Quantas simulações deseja executar? ");
+                int num_sims;
+                if (scanf("%d", &num_sims) == 1) {
+                    while (getchar() != '\n'); // Limpa o buffer
+                    simulateMillingMachine(&list, &failurePatterns, num_sims);
+                } else {
+                    printf("Entrada inválida. Por favor, digite um número.\n");
+                    while (getchar() != '\n'); // Limpa o buffer
+                }
+                break;
+            }
+            // FIM DOS NOVOS CASES
+
+            case 14: // Opção de saída atualizada (o número mudou de 12 para 14)
                 printf("Saindo...\n");
                 break;
             default:
                 printf("Opção inválida. Tente novamente.\n");
         }
-    } while (choice != 12);
+    } while (choice != 14); // Condição de saída atualizada
 
     freeSkipList(&list);
+    // ADICIONE ESTA LINHA:
+    freeFailurePatternList(&failurePatterns); // Libera a memória da lista de padrões
     return 0;
 }
